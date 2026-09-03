@@ -1,0 +1,7 @@
+# Pebble build output
+pebblexdrip/build/
+pebblexdrip/.lock-waf_*
+*.pbw
+
+# Editor
+.idea/

@@ -1,0 +1,34 @@
+{
+  "name": "pebblexdrip",
+  "author": "jwebstas",
+  "version": "1.0.0",
+  "keywords": ["pebble-app"],
+  "private": true,
+  "dependencies": {},
+  "pebble": {
+    "displayName": "xDrip CGM",
+    "uuid": "6caadca7-4b33-4240-ada7-5942b03b7c83",
+    "sdkVersion": "3",
+    "enableMultiJS": true,
+    "targetPlatforms": [
+      "basalt",
+      "chalk",
+      "diorite"
+    ],
+    "watchapp": {
+      "watchface": false
+    },
+    "messageKeys": [
+      "SGV",
+      "DELTA",
+      "TREND",
+      "AGE",
+      "HIST_COUNT",
+      "HISTORY",
+      "ERR"
+    ],
+    "resources": {
+      "media": []
+    }
+  }
+}
