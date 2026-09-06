@@ -5,3 +5,6 @@ pebblexdrip/.lock-waf_*
 
 # Editor
 .idea/
+
+# Claude Code
+CLAUDE.md
