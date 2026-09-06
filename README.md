@@ -38,7 +38,9 @@ watchface, so that covers passive glances.
 - **Number** — mg/dL. Green in range, red low, yellow high, grey when stale.
 - **Arrow** — xDrip trend.
 - **Line** — signed delta and minutes since the reading.
-- **Graph** — last ~2 h. The lighter band is the 70–180 target range.
+- **Graph** — last ~2 h. Dots are coloured by value on the same scale as
+  the number. The lighter band is the 70–180 target range.
+- **Snooze** — hold SELECT, UP, or DOWN to send an xDrip+ snooze.
 
 ## Build from source
 
