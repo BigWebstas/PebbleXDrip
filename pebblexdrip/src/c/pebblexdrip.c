@@ -12,6 +12,11 @@ static Layer *s_canvas;
 static GPath *s_arrow;
 static AppTimer *s_refresh_timer;
 static AppTimer *s_dirty_timer;
+static AppTimer *s_banner_timer;
+
+// Transient status line (e.g. "snoozing...") shown in place of the delta line.
+static char   s_banner[20] = "";
+static time_t s_banner_until = 0;
 
 // Latest state from the phone.
 static int   s_sgv = 0;          // mg/dL, 0 = none yet
@@ -41,6 +46,28 @@ static void request_refresh(void) {
     dict_write_uint8(out, MESSAGE_KEY_ERR, 0);   // any message = "please refresh"
     app_message_outbox_send();
   }
+}
+
+static void request_snooze(void) {
+  DictionaryIterator *out;
+  if (app_message_outbox_begin(&out) == APP_MSG_OK) {
+    dict_write_uint8(out, MESSAGE_KEY_SNOOZE, 1);
+    app_message_outbox_send();
+  }
+}
+
+static void banner_tick(void *data) {
+  s_banner_timer = NULL;
+  layer_mark_dirty(s_canvas);       // let the banner expire on the next redraw
+}
+
+static void set_banner(const char *txt) {
+  strncpy(s_banner, txt, sizeof(s_banner) - 1);
+  s_banner[sizeof(s_banner) - 1] = '\0';
+  s_banner_until = time(NULL) + 3;
+  if (s_banner_timer) app_timer_cancel(s_banner_timer);
+  s_banner_timer = app_timer_register(3200, banner_tick, NULL);
+  layer_mark_dirty(s_canvas);
 }
 
 static int effective_age(void) {
@@ -129,11 +156,12 @@ static void draw_graph(GContext *ctx, GRect r) {
   if (s_hist_count < 2) return;
 
   int n = s_hist_count;
-  graphics_context_set_fill_color(ctx, PBL_IF_COLOR_ELSE(GColorBlack, GColorWhite));
   for (int i = 0; i < n; i++) {
     int v = s_hist[i] * 2;
     int x = r.origin.x + (r.size.w - 1) * i / (n - 1);
     int y = Y_FOR(v);
+    // Colour each point by its glucose value, same scale as the big number.
+    graphics_context_set_fill_color(ctx, PBL_IF_COLOR_ELSE(sgv_color(v), GColorWhite));
     graphics_fill_circle(ctx, GPoint(x, y), 2);
   }
   #undef Y_FOR
@@ -160,13 +188,13 @@ static void canvas_update(Layer *layer, GContext *ctx) {
   if (is_stale() && s_have_data) col = PBL_IF_COLOR_ELSE(GColorLightGray, GColorWhite);
 
   graphics_context_set_text_color(ctx, col);
-  // ROBOTO_BOLD_SUBSET_49 is the largest stock font: 49px, digits + ':' only.
-  // For "LOW"/"HIGH"/"---" (letters) fall back to the largest full font.
+  // LECO_42_NUMBERS is Pebble's crisp LCD-style numeral face: 42px, digits only.
+  // For "..."/"---" (non-digits) fall back to the largest full font.
   bool digits_only = (buf[0] >= '0' && buf[0] <= '9');
-  GFont big = fonts_get_system_font(digits_only ? FONT_KEY_ROBOTO_BOLD_SUBSET_49
+  GFont big = fonts_get_system_font(digits_only ? FONT_KEY_LECO_42_NUMBERS
                                                 : FONT_KEY_BITHAM_42_BOLD);
   graphics_draw_text(ctx, buf, big,
-                     GRect(0, top - 4, b.size.w, 54),
+                     GRect(0, top - 2, b.size.w, 52),
                      GTextOverflowModeFill, GTextAlignmentCenter, NULL);
 
   // --- trend arrow, left of the number ---------------------------------
@@ -174,9 +202,13 @@ static void canvas_update(Layer *layer, GContext *ctx) {
     draw_arrow(ctx, GPoint(PBL_IF_ROUND_ELSE(30, 15), top + 26), s_trend, col);
   }
 
-  // --- delta + age line ------------------------------------------------
+  // --- delta + age line (or a transient banner) -----------------------
   char line[32];
-  if (s_err && !s_have_data) {
+  GColor line_col = GColorWhite;
+  if (s_banner[0] && time(NULL) < s_banner_until) {
+    strncpy(line, s_banner, sizeof(line));
+    line_col = PBL_IF_COLOR_ELSE(GColorYellow, GColorWhite);
+  } else if (s_err && !s_have_data) {
     snprintf(line, sizeof(line), "no data (e%d)", s_err);
   } else if (!s_have_data) {
     strncpy(line, "waiting...", sizeof(line));
@@ -188,7 +220,7 @@ static void canvas_update(Layer *layer, GContext *ctx) {
     else                  snprintf(agebuf, sizeof(agebuf), "%dm", mins);
     snprintf(line, sizeof(line), "%+d   %s", s_delta, agebuf);
   }
-  graphics_context_set_text_color(ctx, GColorWhite);
+  graphics_context_set_text_color(ctx, line_col);
   graphics_draw_text(ctx, line, fonts_get_system_font(FONT_KEY_GOTHIC_28_BOLD),
                      GRect(0, top + 50, b.size.w, 30),
                      GTextOverflowModeFill, GTextAlignmentCenter, NULL);
@@ -223,6 +255,11 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
   } else if (err && err->value->int32 != 0) {
     s_err = err->value->int32;
   }
+
+  Tuple *snoozed = dict_find(iter, MESSAGE_KEY_SNOOZED);
+  if (snoozed) {
+    set_banner(snoozed->value->int32 ? "snoozed" : "snooze failed");
+  }
   layer_mark_dirty(s_canvas);
 }
 
@@ -246,8 +283,18 @@ static void select_click(ClickRecognizerRef recognizer, void *context) {
   request_refresh();
 }
 
+// Hold any button for ~600ms to send an xDrip+ snooze.
+static void snooze_hold(ClickRecognizerRef recognizer, void *context) {
+  request_snooze();
+  vibes_short_pulse();
+  set_banner("snoozing...");
+}
+
 static void click_config(void *context) {
   window_single_click_subscribe(BUTTON_ID_SELECT, select_click);
+  window_long_click_subscribe(BUTTON_ID_SELECT, 600, snooze_hold, NULL);
+  window_long_click_subscribe(BUTTON_ID_UP,     600, snooze_hold, NULL);
+  window_long_click_subscribe(BUTTON_ID_DOWN,   600, snooze_hold, NULL);
 }
 
 // ---------------------------------------------------------------------------
@@ -288,6 +335,7 @@ static void init(void) {
 static void deinit(void) {
   if (s_refresh_timer) app_timer_cancel(s_refresh_timer);
   if (s_dirty_timer) app_timer_cancel(s_dirty_timer);
+  if (s_banner_timer) app_timer_cancel(s_banner_timer);
   window_destroy(s_window);
   gpath_destroy(s_arrow);
 }

@@ -27,18 +27,41 @@ function sendError(code) {
   Pebble.sendAppMessage({ ERR: code });
 }
 
-function fetchBG() {
+// AppMessage has no queue on the watch, so send one merged message per request.
+function fetchBG(snooze) {
   var req = new XMLHttpRequest();
-  req.open('GET', BASE + '/sgv.json?count=' + HISTORY_MAX, true);
+  // "osnooze" = opportunistic snooze: works even with no alert playing, and the
+  // same call still returns the latest readings, so we snooze + refresh in one trip.
+  var url = BASE + '/sgv.json?count=' + HISTORY_MAX + (snooze ? '&tasker=osnooze' : '');
+  req.open('GET', url, true);
   req.timeout = 8000;
+
   req.onload = function () {
     console.log('xdrip: HTTP ' + req.status + ' len=' + req.responseText.length);
-    if (req.status !== 200) { sendError(req.status || 1); return; }
+    if (req.status !== 200) {
+      if (snooze) { Pebble.sendAppMessage({ SNOOZED: 0 }); }
+      sendError(req.status || 1);
+      return;
+    }
+
+    var msg = {};
+    if (snooze) {
+      // tasker_result is in the first record; absent field => older build, assume ok.
+      var m = /tasker_result"\s*:\s*"?([a-z ]+)/i.exec(req.responseText);
+      msg.SNOOZED = (!m || /ok|snooze|queued/i.test(m[1])) ? 1 : 0;
+      console.log('xdrip: snooze result ' + (m ? m[1] : 'n/a') + ' -> ' + msg.SNOOZED);
+    }
 
     var rows;
     try { rows = JSON.parse(req.responseText); }
-    catch (e) { sendError(2); return; }
-    if (!rows || !rows.length) { sendError(3); return; }
+    catch (e) {
+      if (snooze) { Pebble.sendAppMessage(msg); } else { sendError(2); }
+      return;
+    }
+    if (!rows || !rows.length) {
+      if (snooze) { Pebble.sendAppMessage(msg); } else { sendError(3); }
+      return;
+    }
 
     // Nightscout entries are newest-first.
     var latest = rows[0];
@@ -64,20 +87,28 @@ function fetchBG() {
 
     console.log('xdrip: sgv=' + sgv + ' delta=' + delta + ' trend=' + trend +
                 ' age=' + age + ' hist=' + hist.length);
-    Pebble.sendAppMessage({
-      SGV: sgv,
-      DELTA: delta,
-      TREND: trend,
-      AGE: age,
-      HIST_COUNT: hist.length,
-      HISTORY: hist
-    });
+    msg.SGV = sgv;
+    msg.DELTA = delta;
+    msg.TREND = trend;
+    msg.AGE = age;
+    msg.HIST_COUNT = hist.length;
+    msg.HISTORY = hist;
+    Pebble.sendAppMessage(msg);
   };
-  req.ontimeout = function () { sendError(4); };
-  req.onerror = function () { sendError(5); };
+
+  req.ontimeout = function () {
+    if (snooze) { Pebble.sendAppMessage({ SNOOZED: 0 }); }
+    sendError(4);
+  };
+  req.onerror = function () {
+    if (snooze) { Pebble.sendAppMessage({ SNOOZED: 0 }); }
+    sendError(5);
+  };
   req.send();
 }
 
-Pebble.addEventListener('ready', fetchBG);
-// The watch asks for a refresh by sending any AppMessage.
-Pebble.addEventListener('appmessage', fetchBG);
+Pebble.addEventListener('ready', function () { fetchBG(false); });
+// The watch sends SNOOZE:1 for a snooze, or any other message to ask for a refresh.
+Pebble.addEventListener('appmessage', function (e) {
+  fetchBG(!!(e.payload && e.payload.SNOOZE));
+});

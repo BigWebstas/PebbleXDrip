@@ -25,7 +25,9 @@
       "AGE",
       "HIST_COUNT",
       "HISTORY",
-      "ERR"
+      "ERR",
+      "SNOOZE",
+      "SNOOZED"
     ],
     "resources": {
       "media": [
