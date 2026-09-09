@@ -2,9 +2,10 @@
   "name": "pebblexdrip",
   "author": "jwebstas",
   "version": "1.0.0",
-  "keywords": ["pebble-app"],
+  "keywords": [
+    "pebble-app"
+  ],
   "private": true,
-  "dependencies": {},
   "pebble": {
     "displayName": "xDrip CGM",
     "uuid": "6caadca7-4b33-4240-ada7-5942b03b7c83",

@@ -40,7 +40,9 @@ watchface, so that covers passive glances.
 - **Line** — signed delta and minutes since the reading.
 - **Graph** — last ~2 h. Dots are coloured by value on the same scale as
   the number. The lighter band is the 70–180 target range.
-- **Snooze** — hold SELECT, UP, or DOWN to send an xDrip+ snooze.
+- **Snooze** — hold a button to snooze xDrip+ alerts. The button picks the
+  duration: **UP = 30 min**, **SELECT = 90 min**, **DOWN = 12 h**. The banner
+  confirms the length ("snoozed 90m").
 
 ## Build from source
 

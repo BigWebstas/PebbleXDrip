@@ -48,10 +48,11 @@ static void request_refresh(void) {
   }
 }
 
-static void request_snooze(void) {
+static void request_snooze(int minutes) {
   DictionaryIterator *out;
   if (app_message_outbox_begin(&out) == APP_MSG_OK) {
-    dict_write_uint8(out, MESSAGE_KEY_SNOOZE, 1);
+    // SNOOZE = minutes to snooze for; the phone forwards it as "snooze N" to xDrip+.
+    dict_write_uint16(out, MESSAGE_KEY_SNOOZE, (uint16_t)minutes);
     app_message_outbox_send();
   }
 }
@@ -258,7 +259,14 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
 
   Tuple *snoozed = dict_find(iter, MESSAGE_KEY_SNOOZED);
   if (snoozed) {
-    set_banner(snoozed->value->int32 ? "snoozed" : "snooze failed");
+    int mins = snoozed->value->int32;   // minutes on success, 0 on failure
+    if (mins > 0) {
+      char b[20];
+      snprintf(b, sizeof(b), "snoozed %dm", mins);
+      set_banner(b);
+    } else {
+      set_banner("snooze failed");
+    }
   }
   layer_mark_dirty(s_canvas);
 }
@@ -283,11 +291,20 @@ static void select_click(ClickRecognizerRef recognizer, void *context) {
   request_refresh();
 }
 
-// Hold any button for ~600ms to send an xDrip+ snooze.
+// Hold a button ~600ms to snooze. Each button picks a different duration:
+//   UP = 30m, SELECT = 90m, DOWN = 720m (12h).
 static void snooze_hold(ClickRecognizerRef recognizer, void *context) {
-  request_snooze();
+  int mins;
+  switch (click_recognizer_get_button_id(recognizer)) {
+    case BUTTON_ID_UP:   mins = 30;  break;
+    case BUTTON_ID_DOWN: mins = 720; break;
+    default:             mins = 90;  break;   // SELECT
+  }
+  request_snooze(mins);
   vibes_short_pulse();
-  set_banner("snoozing...");
+  char b[20];
+  snprintf(b, sizeof(b), "snoozing %dm...", mins);
+  set_banner(b);
 }
 
 static void click_config(void *context) {
