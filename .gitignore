@@ -9,3 +9,4 @@ pebblexdrip/.lock-waf_*
 # Claude Code
 CLAUDE.md
 GEMINI.md
+.claude/
